@@ -1,7 +1,6 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { User } from "@/types"
-
-
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 export function UserSidebar({ users }: { users: User[] | null }) {
   const getStatusColor = (status: User["active"]) => {
@@ -14,6 +13,8 @@ export function UserSidebar({ users }: { users: User[] | null }) {
         return "bg-gray-400"
     }
   }
+
+  const isMobile = useMediaQuery("(max-width: 768px)");
 
   return (
     <div className="w-80 bg-card/40 backdrop-blur-sm border-r border-border/50 flex flex-col">
@@ -41,7 +42,9 @@ export function UserSidebar({ users }: { users: User[] | null }) {
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
+                    {!isMobile && (
                     <h3 className="font-medium text-foreground truncate">{user.name}</h3>
+                    )}
                   </div>
                 </div>
               </div>
