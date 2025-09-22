@@ -15,3 +15,7 @@ This project demonstrates cross-tab communication using [`react-broadcast-sync`]
 3. Open your browser at http://localhost:3000:
    ```bash
    Open two tabs to see the cross-tab implementation in action.
+
+4. Screen-recording and screenshots in:
+   ```bash
+   Find in folder recording-screenshots
