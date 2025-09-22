@@ -6,33 +6,65 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Send } from "lucide-react"
-import { ChatMessage, User } from "@/types"
+import { ChatMessage, User, TypingUser } from "@/types"
 
+// Typing indicator component
+const TypingIndicator = ({ typingUsers }: { typingUsers: TypingUser[] }) => {
+  if (typingUsers.length === 0) return null;
 
+  const getTypingText = () => {
+    if (typingUsers.length === 1) {
+      return `${typingUsers[0].userName} is typing`;
+    } else if (typingUsers.length === 2) {
+      return `${typingUsers[0].userName} and ${typingUsers[1].userName} are typing`;
+    } else {
+      return `${typingUsers[0].userName} and ${typingUsers.length - 1} others are typing`;
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground">
+      <div className="flex gap-1">
+        <div className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+        <div className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+        <div className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce"></div>
+      </div>
+      <span>{getTypingText()}...</span>
+    </div>
+  );
+};
 
 export function ChatWindow({
   users,
   currentUser,
   chatMessages,
-  sendChatMessage
+  typingUsers,
+  sendChatMessage,
+  handleTyping,
+  stopTyping
 }: {
   users: User[] | null
   currentUser: User | null
   chatMessages: ChatMessage[] | null
+  typingUsers: TypingUser[]
   sendChatMessage: (message: string) => void
+  handleTyping: () => void
+  stopTyping: () => void
 }) {
   const [messageInput, setMessageInput] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     console.log('Page render - Current users:', users);
     console.log('Page render - Current user:', currentUser);
-  }, [users, currentUser]);
+    console.log('Page render - Typing users:', typingUsers);
+  }, [users, currentUser, typingUsers]);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive or typing indicators change
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
+  }, [chatMessages, typingUsers]);
 
   const activeUsers = users?.filter(u => u.active);
   const inactiveUsers = users?.filter(u => !u.active);
@@ -50,6 +82,17 @@ export function ChatWindow({
       e.preventDefault();
       handleSendMessage(e);
     }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setMessageInput(e.target.value);
+    // Trigger typing indicator
+    handleTyping();
+  };
+
+  const handleInputBlur = () => {
+    // Stop typing when input loses focus
+    stopTyping();
   };
 
   const formatTime = (timestamp: number) => {
@@ -75,38 +118,49 @@ export function ChatWindow({
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         {chatMessages?.map((message) => (
           <div key={message.id} className="space-y-1">
-            <div className="text-xs text-muted-foreground">{formatTime(message.timestamp)}</div>
+            <div className="text-xs text-muted-foreground flex items-center gap-2">
+              <span>{message.userName}</span>
+              <span>•</span>
+              <span>{formatTime(message.timestamp)}</span>
+            </div>
             <div
               className={`max-w-[80%] p-3 rounded-2xl text-pretty ${message.userId === currentUser?.id
-                ? "ml-auto bg-black text-white dark:bg-white dark:text-black dark:border dark:border-gray-300"
-                : "bg-gray-200 text-black dark:bg-gray-800 dark:text-white dark:border dark:border-gray-700"
+                  ? "ml-auto bg-black text-white dark:bg-white dark:text-black dark:border dark:border-gray-300"
+                  : "bg-gray-200 text-black dark:bg-gray-800 dark:text-white dark:border dark:border-gray-700"
                 }`}
             >
               {message.text}
             </div>
           </div>
         ))}
+
+        {/* Typing Indicator */}
+        <TypingIndicator typingUsers={typingUsers} />
+
         <div ref={chatEndRef} />
       </div>
 
       {/* Input */}
       <div className="p-6 bg-card/60 backdrop-blur-sm border-t border-border/50">
-        <div className="flex gap-3">
+        <form onSubmit={handleSendMessage} className="flex gap-3">
           <Input
+            ref={inputRef}
             value={messageInput}
-            onChange={(e) => setMessageInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyPress={handleKeyPress}
+            onBlur={handleInputBlur}
             placeholder="Type a message..."
             className="flex-1 bg-input/70 backdrop-blur-sm border-border/50 rounded-xl px-4 py-3 text-sm placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/50"
           />
           <Button
-            onClick={handleSendMessage}
+            type="submit"
             size="icon"
-            className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground"
+            disabled={!messageInput.trim()}
+            className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground disabled:opacity-50"
           >
             <Send className="w-4 h-4" />
           </Button>
-        </div>
+        </form>
       </div>
     </div>
   )

@@ -1,16 +1,19 @@
 "use client"
 
 import { generateUsername } from '@/lib/utils';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useBroadcastChannel } from 'react-broadcast-sync';
-import { User, ChatMessage, UserMessage, ChatBroadcastMessage } from '@/types';
+import { User, ChatMessage, UserMessage, ChatBroadcastMessage, TypingUser } from '@/types';
 
 export const useCollaborativeSession = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
   const userRef = useRef<User | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isTypingRef = useRef(false);
 
   const { messages: userMessages, postMessage: postUserMessage } = useBroadcastChannel('users', {
     keepLatestMessage: false,
@@ -180,7 +183,7 @@ export const useCollaborativeSession = () => {
     });
   }, [userMessages]);
 
-  // Handle chat messages
+  // Handle chat messages including typing indicators
   useEffect(() => {
     if (!chatBroadcastMessages.length || !isInitialized) return;
 
@@ -208,6 +211,40 @@ export const useCollaborativeSession = () => {
           // Keep only last 100 messages to prevent memory issues
           return newMessages.slice(-100).sort((a: ChatMessage, b: ChatMessage) => a.timestamp - b.timestamp);
         });
+
+        // Remove typing indicator when message is sent
+        if (broadcastMessage.userId) {
+          setTypingUsers(prev => prev.filter(user => user.userId !== broadcastMessage.userId));
+        }
+        break;
+
+      case 'typing_start':
+        if (broadcastMessage.userId && broadcastMessage.userName && broadcastMessage.userId !== currentUser?.id) {
+          setTypingUsers(prev => {
+            const existing = prev.find(user => user.userId === broadcastMessage.userId);
+            if (existing) {
+              // Update timestamp
+              return prev.map(user =>
+                user.userId === broadcastMessage.userId
+                  ? { ...user, timestamp: broadcastMessage.timestamp }
+                  : user
+              );
+            } else {
+              // Add new typing user
+              return [...prev, {
+                userId: broadcastMessage.userId!,
+                userName: broadcastMessage.userName!,
+                timestamp: broadcastMessage.timestamp
+              }];
+            }
+          });
+        }
+        break;
+
+      case 'typing_stop':
+        if (broadcastMessage.userId && broadcastMessage.userId !== currentUser?.id) {
+          setTypingUsers(prev => prev.filter(user => user.userId !== broadcastMessage.userId));
+        }
         break;
 
       case 'request_history':
@@ -244,6 +281,24 @@ export const useCollaborativeSession = () => {
         break;
     }
   }, [chatBroadcastMessages, isInitialized, currentUser?.id]);
+
+  // Clean up stale typing indicators
+  useEffect(() => {
+    const cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      const TYPING_TIMEOUT = 3000; // 3 seconds
+
+      setTypingUsers(prev => {
+        const filtered = prev.filter(user => now - user.timestamp < TYPING_TIMEOUT);
+        if (filtered.length !== prev.length) {
+          console.log('Cleaned up stale typing indicators');
+        }
+        return filtered;
+      });
+    }, 1000);
+
+    return () => clearInterval(cleanupInterval);
+  }, []);
 
   // Mark inactive users
   useEffect(() => {
@@ -287,9 +342,68 @@ export const useCollaborativeSession = () => {
     return () => clearInterval(inactivityCheck);
   }, []);
 
+  // Typing indicator functions
+  const startTyping = useCallback(() => {
+    if (!currentUser || isTypingRef.current) return;
+
+    isTypingRef.current = true;
+    postChatMessage('chat', {
+      type: 'typing_start',
+      userId: currentUser.id,
+      userName: currentUser.name,
+      timestamp: Date.now()
+    });
+
+    console.log(`⌨️ ${currentUser.name} started typing`);
+  }, [currentUser, postChatMessage]);
+
+  const stopTyping = useCallback(() => {
+    if (!currentUser || !isTypingRef.current) return;
+
+    isTypingRef.current = false;
+    postChatMessage('chat', {
+      type: 'typing_stop',
+      userId: currentUser.id,
+      userName: currentUser.name,
+      timestamp: Date.now()
+    });
+
+    console.log(`⌨️ ${currentUser.name} stopped typing`);
+  }, [currentUser, postChatMessage]);
+
+  const handleTyping = useCallback(() => {
+    if (!currentUser) return;
+
+    // Start typing if not already
+    if (!isTypingRef.current) {
+      startTyping();
+    }
+
+    // Clear existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Set new timeout to stop typing after 2 seconds of inactivity
+    typingTimeoutRef.current = setTimeout(() => {
+      stopTyping();
+    }, 2000);
+  }, [currentUser, startTyping, stopTyping]);
+
   // Send chat message function
   const sendChatMessage = (text: string) => {
     if (!currentUser || !text.trim()) return;
+
+    // Stop typing indicator when sending message
+    if (isTypingRef.current) {
+      stopTyping();
+    }
+
+    // Clear typing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
 
     const chatMessage: ChatMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -310,6 +424,7 @@ export const useCollaborativeSession = () => {
     postChatMessage('chat', {
       type: 'message',
       message: chatMessage,
+      userId: currentUser.id,
       timestamp: Date.now()
     });
 
@@ -320,6 +435,9 @@ export const useCollaborativeSession = () => {
     users,
     currentUser,
     chatMessages,
-    sendChatMessage
+    typingUsers,
+    sendChatMessage,
+    handleTyping,
+    stopTyping
   };
 };
