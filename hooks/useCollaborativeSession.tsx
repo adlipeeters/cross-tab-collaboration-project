@@ -10,6 +10,7 @@ export const useCollaborativeSession = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const userRef = useRef<User | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const { messages: userMessages, postMessage: postUserMessage } = useBroadcastChannel('users', {
     keepLatestMessage: false,
@@ -47,6 +48,15 @@ export const useCollaborativeSession = () => {
       user: newUser,
       timestamp: Date.now()
     });
+
+    // Request chat history from existing users
+    postChatMessage('chat', {
+      type: 'request_history',
+      requestingUserId: newUser.id,
+      timestamp: Date.now()
+    });
+
+    setIsInitialized(true);
 
     // Set up heartbeat interval
     const heartbeatInterval = setInterval(() => {
@@ -172,37 +182,72 @@ export const useCollaborativeSession = () => {
 
   // Handle chat messages
   useEffect(() => {
-    if (!chatBroadcastMessages.length) return;
+    if (!chatBroadcastMessages.length || !isInitialized) return;
 
     const broadcastMessage: ChatBroadcastMessage = chatBroadcastMessages[chatBroadcastMessages.length - 1].message;
     console.log('Processing chat message:', broadcastMessage);
 
-    if (broadcastMessage.type === 'message') {
-      const messageAge = Date.now() - broadcastMessage.timestamp;
-      const STALE_MESSAGE_THRESHOLD = 60000; // 1 minute for chat messages
+    const messageAge = Date.now() - broadcastMessage.timestamp;
+    const STALE_MESSAGE_THRESHOLD = 60000; // 1 minute for chat messages
 
-      if (messageAge > STALE_MESSAGE_THRESHOLD) {
-        console.log(`⚠️ Ignoring stale chat message`);
-        return;
-      }
-
-      setChatMessages(prev => {
-        // Check if message already exists to prevent duplicates
-        const messageExists = prev.some(msg => msg.id === broadcastMessage.message.id);
-        if (messageExists) {
-          return prev;
+    switch (broadcastMessage.type) {
+      case 'message':
+        if (messageAge > STALE_MESSAGE_THRESHOLD) {
+          console.log(`⚠️ Ignoring stale chat message`);
+          return;
         }
 
-        const newMessages = [...prev, broadcastMessage.message];
-        // Keep only last 100 messages to prevent memory issues
-        return newMessages.slice(-100).sort((a, b) => a.timestamp - b.timestamp);
-      });
+        setChatMessages((prev): ChatMessage[] => {
+          // Check if message already exists to prevent duplicates
+          const messageExists = prev.some((msg: ChatMessage) => msg.id === broadcastMessage.message?.id);
+          if (messageExists) {
+            return prev;
+          }
+
+          const newMessages = [...prev, broadcastMessage.message || {} as ChatMessage];
+          // Keep only last 100 messages to prevent memory issues
+          return newMessages.slice(-100).sort((a: ChatMessage, b: ChatMessage) => a.timestamp - b.timestamp);
+        });
+        break;
+
+      case 'request_history':
+        // If someone requests history and we have messages, send them
+        if (chatMessages.length > 0 && broadcastMessage.requestingUserId !== currentUser?.id) {
+          console.log(`📚 Sending chat history to ${broadcastMessage.requestingUserId}`);
+          postChatMessage('chat', {
+            type: 'history_response',
+            messages: chatMessages,
+            targetUserId: broadcastMessage.requestingUserId,
+            timestamp: Date.now()
+          });
+        }
+        break;
+
+      case 'history_response':
+        // If this history response is for us, merge it with our messages
+        if (broadcastMessage.targetUserId === currentUser?.id && broadcastMessage.messages) {
+          console.log(`📖 Received chat history: ${broadcastMessage.messages.length} messages`);
+
+          setChatMessages(prev => {
+            // Merge histories, remove duplicates, and sort by timestamp
+            const allMessages = [...prev, ...(broadcastMessage.messages || [])];
+            const uniqueMessages = allMessages.reduce((acc, message) => {
+              if (!acc.some((msg: ChatMessage) => msg.id === message.id)) {
+                acc.push(message);
+              }
+              return acc;
+            }, [] as ChatMessage[]);
+
+            return uniqueMessages.slice(-100).sort((a: ChatMessage, b: ChatMessage) => a.timestamp - b.timestamp);
+          });
+        }
+        break;
     }
-  }, [chatBroadcastMessages]);
+  }, [chatBroadcastMessages, isInitialized, currentUser?.id]);
 
   // Mark inactive users
   useEffect(() => {
-    const INACTIVE_TIMEOUT = 2000; // 3 seconds timeout
+    const INACTIVE_TIMEOUT = 3000; // 3 seconds timeout
 
     const inactivityCheck = setInterval(() => {
       const now = Date.now();
@@ -257,7 +302,7 @@ export const useCollaborativeSession = () => {
     // Add to local state immediately for instant feedback
     setChatMessages(prev => {
       const newMessages = [...prev, chatMessage];
-      // this line is to keep only the last 100 messages to prevent memory issues
+      // Keep only the last 100 messages to prevent memory issues
       return newMessages.slice(-100).sort((a, b) => a.timestamp - b.timestamp);
     });
 

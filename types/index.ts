@@ -20,8 +20,11 @@ export interface User {
     timestamp: number;
   }
   
-  export interface ChatBroadcastMessage {
-    type: 'message';
-    message: ChatMessage;
-    timestamp: number;
-  }
+export interface ChatBroadcastMessage {
+  type: 'message' | 'request_history' | 'history_response';
+  message?: ChatMessage;
+  messages?: ChatMessage[]; // For history responses
+  requestingUserId?: string; // For history requests
+  targetUserId?: string; // For targeted history responses
+  timestamp: number;
+}
