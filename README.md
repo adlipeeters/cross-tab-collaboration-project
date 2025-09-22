@@ -16,6 +16,6 @@ This project demonstrates cross-tab communication using [`react-broadcast-sync`]
    ```bash
    Open two tabs to see the cross-tab implementation in action.
 
-4. Screen-recording and screenshots in:
+4. Screen-recording and screenshots:
    ```bash
    Find in folder recording-screenshots
