@@ -97,7 +97,7 @@ export const useUserManagement = () => {
                 case 'heartbeat':
                     if (message.user) {
                         const messageAge = Date.now() - message.timestamp;
-                        const STALE_MESSAGE_THRESHOLD = 10000;
+                        const STALE_MESSAGE_THRESHOLD = 2000;
 
                         if (messageAge > STALE_MESSAGE_THRESHOLD) break;
 
